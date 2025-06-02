@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "gruppenprojekt"
+version = "0.1.0"
+description = ""
+authors = ["Niklas <115569956+01Niklas@users.noreply.github.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+notebook = "^7.4.1"
+pandas = "^2.2.3"
+google = "^3.0.0"
+protobuf = "^6.30.2"
+scikit-learn = "^1.6.1"
+pytest = "^8.3.5"
+loguru = "^0.7.3"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
