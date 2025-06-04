@@ -14,6 +14,7 @@ protobuf = "^6.30.2"
 scikit-learn = "^1.6.1"
 pytest = "^8.3.5"
 loguru = "^0.7.3"
+pydantic = "^2.11.5"
 
 
 [build-system]

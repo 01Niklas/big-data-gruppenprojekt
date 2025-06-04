@@ -7,7 +7,8 @@ from sklearn.neighbors import NearestNeighbors
 
 
 class CollaborativeFilteringRecommender:
-    def __init__(self, data: pd.DataFrame, mode: Literal['user', 'item'] = 'user') -> None:
+    def __init__(self, data: pd.DataFrame, mode: Literal['user', 'item'] = 'user', display_results_for_each_step: Optional[bool] = False) -> None:
+        self.display_results_for_each_step = display_results_for_each_step
         self.original_data = data
         self.mode = mode
         self.data = None
@@ -39,10 +40,10 @@ class CollaborativeFilteringRecommender:
         distances, indices = knn.kneighbors(dataframe.values, n_neighbors=self.k + 1)
 
         if self.mode == 'item':
-            index = self.data.index.get_loc(self.item_id)
+            index = dataframe.index.get_loc(self.item_id)
             logger.debug(f"Index of item: {self.item_id} is {index}")
         else:
-            index = self.data.index.get_loc(self.user_id)
+            index = dataframe.index.get_loc(self.user_id)
             logger.debug(f"Index of user: {self.user_id} is {index}")
 
         similar_distances = distances[index, 1:]
@@ -125,7 +126,9 @@ class CollaborativeFilteringRecommender:
         similarity = self._calculate_similarities(similar_distances)
         result = self._calculate_result(similarity, ratings)
 
-        self.explain(similar_indices, relevant_df, ratings, similarity, result)
+        if self.display_results_for_each_step:
+          self.explain(similar_indices, relevant_df, ratings, similarity, result)
+
         return result
 
     def explain(self, similar_indices, relevant_df, ratings, similarity, result) -> None:
