@@ -1,25 +1,31 @@
-from typing import List
+from typing import List, Literal, Optional
 from pydantic import BaseModel
 from loguru import logger
 import pandas as pd
 from datetime import datetime
 
+from gruppenprojekt.Hybrid_Recommender import HybridRecommender
 from gruppenprojekt.collaborative_filtering_recommender import CollaborativeFilteringRecommender
+from gruppenprojekt.content_based_recommender import ContentBasedRecommender
 
 class Test(BaseModel):
     name: str
-    mode: str
+    type: Literal["collaborative_filtering", "content_based", "hybrid"]
+    mode: Optional[Literal["user", "item"]] = "item"
     k_value: int
-    metric: str
-    calculation_variety: str
+    metric: Optional[Literal["cosine", "pearson"]] = 'cosine'
+    calculation_variety: Optional[Literal["weighted", "unweighted"]] = 'weighted'
+    alpha: Optional[float] = 0.5
 
 
 class TestResult(BaseModel):
-    testname: str
-    mode: str
+    name: str
+    type: Literal["collaborative_filtering", "content_based", "hybrid"]
+    mode: Literal["user", "item"]
     k_value: int
-    metric: str
-    calculation_variety: str
+    metric: Literal["cosine", "pearson"]
+    calculation_variety: Literal["weighted", "unweighted"]
+    alpha: float
     mae: float
 
 
@@ -32,11 +38,13 @@ class TestResults(BaseModel): # just for saving in a "pretty" form
 
 
 class MAETester:
-    def __init__(self, tests: List[Test], test_data_path: str, data_path: str):
+    def __init__(self, tests: List[Test], test_data_path: str, data_path: str, item_profile_path: str, user_ratings: str):
         self.tests = tests
         self.testdata = pd.read_csv(test_data_path)  # testdata (for evaluaton)
+        self.item_profile = pd.read_csv(item_profile_path)
+        self.user_ratings = pd.read_csv(user_ratings)
         self._prepare_data()
-        self.data = pd.read_csv(data_path)  # trainingsdata
+        self.data = pd.read_csv(data_path)  # trainings-data
         self.results: List[TestResult] = []
 
 
@@ -60,10 +68,26 @@ class MAETester:
     def _run_test(self, test: Test) -> TestResult:
         logger.info(f"Running test: {test.name}")
 
-        recommender = CollaborativeFilteringRecommender(
-            mode=test.mode, # ignore warnings that this is not the correct type - this is just a testing class...
-            data=self.data,  # trainingdata
-        )
+        if test.type == "content_based":
+            recommender = ContentBasedRecommender(
+                item_profile=self.item_profile,
+                user_ratings=self.user_ratings,
+            )
+        elif test.type == "collaborative_filtering":
+            recommender = CollaborativeFilteringRecommender(
+                mode=test.mode, # ignore type
+                data=self.data,
+            )
+        elif test.type == "hybrid":
+            recommender = HybridRecommender(
+                data=self.data,
+                item_profile=self.item_profile,
+                user_ratings=self.user_ratings,
+                mode=test.mode,
+                alpha=test.alpha,
+            )
+        else:
+            raise ValueError(f"Unbekannter Recomendertyp: {test.type}")
 
         predictions = []
         actuals = []
@@ -79,28 +103,30 @@ class MAETester:
                 predicted_rating = recommender.predict(
                     user_id=user_id,
                     item_id=item_id,
-                    similarity=test.metric, # ignore warnings that this is not the correct type - this is just a testing class...
-                    calculation_variety=test.calculation_variety, # ignore warnings that this is not the correct type - this is just a testing class...
-                    k=test.k_value,
+                    similarity=test.metric,
+                    calculation_variety=test.calculation_variety,
+                    k=test.k_value
                 )
-                predictions.append(predicted_rating) # save the predicted rating
-                actuals.append(actual_rating)  # save the actual rating from testdata
+                predictions.append(predicted_rating)
+                actuals.append(actual_rating)
             except ValueError as e:
                 logger.warning(f"Fehler bei der Vorhersage: {e}")
 
         mae = self._mean_absolute_error(actuals, predictions)
 
         return TestResult(
-            testname=test.name,
+            name=test.name,
+            type=test.type,
             mode=test.mode,
             k_value=test.k_value,
-            metric=test.calculation_variety,
+            metric=test.metric,
             calculation_variety=test.calculation_variety,
+            alpha=test.alpha,
             mae=mae,
         )
 
-
-    def _mean_absolute_error(self, actuals: List[float], predictions: List[float]) -> float:
+    @staticmethod
+    def _mean_absolute_error(actuals: List[float], predictions: List[float]) -> float:
         if not actuals or not predictions or len(actuals) != len(predictions):
             raise ValueError("Listen für tatsächliche und vorhergesagte Werte müssen gleich lang und nicht leer sein.")
 
@@ -114,11 +140,13 @@ class MAETester:
             return
 
         summary_df = pd.DataFrame([{
-            "Testname": result.testname,
-            "Modus": result.mode,
+            "Testname": result.name,
+            "Recomendertyp": result.type,
+            "Modus": result.mode if result.type == "collaborative_filtering" else "/",
             "k-Wert": result.k_value,
-            "Metrik": result.metric,
-            "Berechnungsvariante": result.calculation_variety,
+            "Metrik": result.metric if result.type == "collaborative_filtering" else "/",
+            "Berechnungsvariante": result.calculation_variety if result.type == "collaborative_filtering" else "/",
+            "Alpha (weight)" : result.alpha if result.type == "hybrid" else "/",
             "MAE": result.mae
         } for result in self.results])
 

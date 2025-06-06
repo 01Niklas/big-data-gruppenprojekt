@@ -5,19 +5,18 @@ import pandas as pd
 from loguru import logger
 from sklearn.neighbors import NearestNeighbors
 
+from gruppenprojekt.recommender import Recommender
 
-class CollaborativeFilteringRecommender:
+
+class CollaborativeFilteringRecommender(Recommender):
     def __init__(self, data: pd.DataFrame, mode: Literal['user', 'item'] = 'user', display_results_for_each_step: Optional[bool] = False) -> None:
+        super().__init__()
         self.display_results_for_each_step = display_results_for_each_step
         self.original_data = data
         self.mode = mode
         self.data = None
         self._preprocess_data()
-        self.user_id = None
-        self.item_id = None
-        self.k = 3  # default
-        self.similarity = "cosine"  # default
-        self.calculation_variant = "weighted"  # default
+
 
     def _preprocess_data(self) -> None:
         self.original_data = self.original_data.set_index("user_ID")
@@ -27,12 +26,6 @@ class CollaborativeFilteringRecommender:
         else:
             self.data = self.original_data  # original for user based
 
-    def _prepare_information(self, user_id: str, item_id: str, similarity: str, calculation_variant: str, k: int) -> None:
-        self.user_id = user_id
-        self.item_id = item_id
-        self.similarity = similarity
-        self.calculation_variant = calculation_variant
-        self.k = k
 
     def _calculate_distance_and_indices(self, dataframe: pd.DataFrame) -> ([], []):
         knn = NearestNeighbors(metric=self.similarity, algorithm='brute')
@@ -41,15 +34,11 @@ class CollaborativeFilteringRecommender:
 
         if self.mode == 'item':
             index = dataframe.index.get_loc(self.item_id)
-            logger.debug(f"Index of item: {self.item_id} is {index}")
         else:
             index = dataframe.index.get_loc(self.user_id)
-            logger.debug(f"Index of user: {self.user_id} is {index}")
 
         similar_distances = distances[index, 1:]
         similar_indices = indices[index, 1:]
-        logger.debug(f"Similar distances: {similar_distances}")
-        logger.debug(f"Similar indices: {similar_indices}")
 
         return similar_distances, similar_indices
 
@@ -65,7 +54,6 @@ class CollaborativeFilteringRecommender:
     def _calculate_result(self, similarity: np.ndarray, ratings: np.ndarray) -> float:
         if self.calculation_variant == "weighted":
             mean = np.dot(ratings, similarity) / similarity.sum()
-            logger.debug(f"{self.calculation_variant} Mittelwert: {mean}")
             return mean
         else:
             return float(np.mean(ratings))
@@ -105,8 +93,7 @@ class CollaborativeFilteringRecommender:
         return pd.concat([relevant_df, self.data.loc[[self.user_id]]])
 
     def predict(self, user_id: str, item_id: str, similarity: Literal['cosine', 'pearson'] = 'cosine', calculation_variety: Literal['weighted', 'unweighted'] = 'weighted', k: Optional[int] = 3):
-        self._prepare_information(user_id, item_id, similarity, calculation_variety, k)
-        logger.debug(f"User ID: {self.user_id}, Item ID: {self.item_id}")
+        self._prepare_information(user_id=user_id, item_id=item_id, similarity=similarity, calculation_variant=calculation_variety, k=k)
         self._check_values()
 
         if self.mode == 'item':
