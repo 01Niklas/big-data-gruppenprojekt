@@ -21,7 +21,7 @@ class HybridRecommender(Recommender):
             similarity: Optional[Literal['cosine', 'pearson']] = 'cosine',  # only for collaborative filtering
             calculation_variety: Optional[Literal['weighted', 'unweighted']] = 'weighted', # only for collaborative filtering
             k: Optional[int] = 3,
-            second_k_value: Optional[int] = None):
+            second_k_value: Optional[int] = 3):
 
         collaborative_prediction = self.collaborative_recommender.predict(
             user_id=user_id,
@@ -31,7 +31,6 @@ class HybridRecommender(Recommender):
             k=k
         )
 
-        # TODO: Add here some custom fields to choose wether we want to use runtime, genre, ... for similarity search
         content_based_prediction = self.content_based_recommender.predict(
             user_id=user_id,
             item_id=item_id,

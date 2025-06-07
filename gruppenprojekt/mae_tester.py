@@ -12,8 +12,8 @@ class Test(BaseModel):
     name: str
     type: Literal["collaborative_filtering", "content_based", "hybrid"]
     mode: Optional[Literal["user", "item"]] = "item"
-    first_k_value: int
-    second_k_value: Optional[int] = None
+    k_value: int
+    second_k_value: Optional[int] = 3
     metric: Optional[Literal["cosine", "pearson"]] = 'cosine'
     calculation_variety: Optional[Literal["weighted", "unweighted"]] = 'weighted'
     alpha: Optional[float] = 0.5
@@ -108,7 +108,8 @@ class MAETester:
                     item_id=item_id,
                     similarity=test.metric,
                     calculation_variety=test.calculation_variety,
-                    k=test.first_k_value
+                    k=test.k_value,
+                    second_k_value=test.second_k_value,
                 )
                 predictions.append(predicted_rating)
                 actuals.append(actual_rating)
@@ -121,7 +122,7 @@ class MAETester:
             name=test.name,
             type=test.type,
             mode=test.mode,
-            k_value=test.first_k_value,
+            k_value=test.k_value,
             metric=test.metric,
             calculation_variety=test.calculation_variety,
             alpha=test.alpha,

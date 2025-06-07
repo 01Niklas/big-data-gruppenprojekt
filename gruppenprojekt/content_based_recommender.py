@@ -40,7 +40,7 @@ class ContentBasedRecommender(Recommender):
             if feature not in self.item_profile.columns:
                 continue
 
-            # combine item and user profofile
+            # combine item and user ratings
             merged_data = pd.merge(self.user_ratings, self.item_profile, on="item_ID")
 
             # convert to numeric
@@ -148,6 +148,10 @@ class ContentBasedRecommender(Recommender):
         # extract only the items, the user rated
         rated_items = self.user_ratings[self.user_ratings["user_ID"] == user_id]
         rated_item_ids = rated_items["item_ID"].values
+
+        # this case can happen when k is greater than the rated items by the user
+        if self.k > len(rated_item_ids):
+            self.k = len(rated_item_ids)
 
         # extract the rated item indices from the item profile
         rated_item_indices = self.item_profile[self.item_profile["item_ID"].isin(rated_item_ids)].index
