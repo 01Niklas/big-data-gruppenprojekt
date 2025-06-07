@@ -23,6 +23,9 @@ class Recommender:
         self.calculation_variant = calculation_variant
         self.k = k
 
+        if similarity == 'pearson' and self.data is not None:
+            self.data['mean'] = self.data.mean(axis=1)
+
 
     @abstractmethod
     def predict(

@@ -2,7 +2,6 @@ from typing import Optional, Literal
 
 import numpy as np
 import pandas as pd
-from loguru import logger
 from sklearn.neighbors import NearestNeighbors
 
 from gruppenprojekt.recommender import Recommender
@@ -14,7 +13,6 @@ class CollaborativeFilteringRecommender(Recommender):
         self.display_results_for_each_step = display_results_for_each_step
         self.original_data = data
         self.mode = mode
-        self.data = None
         self._preprocess_data()
 
 
@@ -28,7 +26,7 @@ class CollaborativeFilteringRecommender(Recommender):
 
 
     def _calculate_distance_and_indices(self, dataframe: pd.DataFrame) -> ([], []):
-        knn = NearestNeighbors(metric=self.similarity, algorithm='brute')
+        knn = NearestNeighbors(metric="cosine", algorithm='brute')
         knn.fit(dataframe.values)
         distances, indices = knn.kneighbors(dataframe.values, n_neighbors=self.k + 1)
 
@@ -43,21 +41,15 @@ class CollaborativeFilteringRecommender(Recommender):
         return similar_distances, similar_indices
 
     def _calculate_similarities(self, similar_distances: np.ndarray) -> np.ndarray:
-        if self.similarity == 'cosine':
-            similarity = [1 - x for x in similar_distances]
-            similarity = [(y + 1) / 2 for y in similarity]
-            return np.array(similarity)
-        else:
-            # TODO: add pearson?
-            raise ValueError("Unsupported similarity metric.")
+        similarity = [1 - x for x in similar_distances]
+        similarity = [(y + 1) / 2 for y in similarity]
+        return np.array(similarity)
 
     def _calculate_result(self, similarity: np.ndarray, ratings: np.ndarray) -> float:
         if self.calculation_variant == "weighted":
-            mean = np.dot(ratings, similarity) / similarity.sum()
-            return mean
-        else:
             return float(np.mean(ratings))
-
+        else:
+            raise ValueError(f"This calculation method is not implemented yet.")
 
     def _check_values(self) -> None:
         if self.mode == 'user':
@@ -72,7 +64,6 @@ class CollaborativeFilteringRecommender(Recommender):
             if self.item_id not in self.data.index:
                 raise ValueError(
                     f"Item {self.item_id} nicht in transponierten Daten.")
-
 
     def _process_item_based(self) -> pd.DataFrame:
         user_ratings = self.original_data.loc[self.user_id]
@@ -92,6 +83,11 @@ class CollaborativeFilteringRecommender(Recommender):
         # add the user we are looking for (due to non-existing rating this user where filtered out)
         return pd.concat([relevant_df, self.data.loc[[self.user_id]]])
 
+    def _normalize_for_pearson(self, relevant_df: pd.DataFrame) -> pd.DataFrame:
+        mean_values = relevant_df.mean(axis=1).to_numpy()
+        relevant_df = relevant_df.sub(mean_values, axis=0)
+        return relevant_df
+
     def predict(
             self,
             user_id: str,
@@ -107,6 +103,9 @@ class CollaborativeFilteringRecommender(Recommender):
             relevant_df = self._process_item_based()
         else:
             relevant_df = self._process_user_based()
+
+        if similarity == 'pearson':
+            self._normalize_for_pearson(relevant_df)
 
         # make sure that there are no NaN values -> set NaN to 0.0
         relevant_df = relevant_df.fillna(0.0)
