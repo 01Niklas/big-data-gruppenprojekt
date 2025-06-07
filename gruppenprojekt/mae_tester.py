@@ -4,7 +4,7 @@ from loguru import logger
 import pandas as pd
 from datetime import datetime
 
-from gruppenprojekt.Hybrid_Recommender import HybridRecommender
+from gruppenprojekt.hybrid_Recommender import HybridRecommender
 from gruppenprojekt.collaborative_filtering_recommender import CollaborativeFilteringRecommender
 from gruppenprojekt.content_based_recommender import ContentBasedRecommender
 
@@ -12,7 +12,8 @@ class Test(BaseModel):
     name: str
     type: Literal["collaborative_filtering", "content_based", "hybrid"]
     mode: Optional[Literal["user", "item"]] = "item"
-    k_value: int
+    first_k_value: int
+    second_k_value: Optional[int] = None
     metric: Optional[Literal["cosine", "pearson"]] = 'cosine'
     calculation_variety: Optional[Literal["weighted", "unweighted"]] = 'weighted'
     alpha: Optional[float] = 0.5
@@ -53,17 +54,19 @@ class MAETester:
         self.testdata["item_ID"] = self.testdata["item_ID"].astype(str)
 
 
-    def run_tests(self):
+    def run_tests(self) -> pd.DataFrame:
         for test in self.tests:
             result = self._run_test(test)
             self.results.append(result)
             logger.success(f"Test abgeschlossen: {test.name}, MAE: {result.mae:.4f}\n")
 
         # display final results
-        self._summarize_test_results()
+        result_df = self._summarize_test_results()
 
         # save final results to file
         self._save_to_file()
+
+        return result_df
 
     def _run_test(self, test: Test) -> TestResult:
         logger.info(f"Running test: {test.name}")
@@ -75,7 +78,7 @@ class MAETester:
             )
         elif test.type == "collaborative_filtering":
             recommender = CollaborativeFilteringRecommender(
-                mode=test.mode, # ignore type
+                mode=test.mode, # ignore type (that this can be NONE)
                 data=self.data,
             )
         elif test.type == "hybrid":
@@ -83,7 +86,7 @@ class MAETester:
                 data=self.data,
                 item_profile=self.item_profile,
                 user_ratings=self.user_ratings,
-                mode=test.mode,
+                mode=test.mode,  # ignore type (that this can be NONE)
                 alpha=test.alpha,
             )
         else:
@@ -105,7 +108,7 @@ class MAETester:
                     item_id=item_id,
                     similarity=test.metric,
                     calculation_variety=test.calculation_variety,
-                    k=test.k_value
+                    k=test.first_k_value
                 )
                 predictions.append(predicted_rating)
                 actuals.append(actual_rating)
@@ -118,7 +121,7 @@ class MAETester:
             name=test.name,
             type=test.type,
             mode=test.mode,
-            k_value=test.k_value,
+            k_value=test.first_k_value,
             metric=test.metric,
             calculation_variety=test.calculation_variety,
             alpha=test.alpha,
@@ -134,7 +137,7 @@ class MAETester:
         mae = sum(absolute_errors) / len(absolute_errors)
         return mae
 
-    def _summarize_test_results(self):
+    def _summarize_test_results(self) -> pd.DataFrame:
         if not self.results:
             logger.info("Keine Testergebnisse vorhanden.")
             return
@@ -155,8 +158,10 @@ class MAETester:
         print(summary_df.to_string(index=False))
         print("-" * 50)
 
+        return summary_df
 
-    def _save_to_file(self):
+
+    def _save_to_file(self) -> None:
         if not self.results:
             logger.info("Keine Testergebnisse vorhanden, nichts zu speichern.")
             return

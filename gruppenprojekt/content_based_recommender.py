@@ -1,18 +1,21 @@
-from typing import Optional, Literal
+from typing import Optional, Literal, List
 
 import numpy as np
 import pandas as pd
+from pyexpat import features
 from scipy.sparse import csr_matrix
 from scipy.sparse import hstack
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import StandardScaler
+import scipy.stats as stats
+from loguru import logger
 
 from gruppenprojekt.recommender import Recommender
 
 
 class ContentBasedRecommender(Recommender):
-    def __init__(self, item_profile: pd.DataFrame, user_ratings: pd.DataFrame):
+    def __init__(self, item_profile: pd.DataFrame, user_ratings: pd.DataFrame) -> None:
         super().__init__()
         self.item_profile = item_profile
         self.user_ratings = user_ratings
@@ -20,15 +23,50 @@ class ContentBasedRecommender(Recommender):
         self.feature_matrix = None
         self._preprocess_data()
 
+        # check if the features "budget", "revenue", "runtime" are relevant for the item/rating correlation
+        self._check_features_correlation(features=["budget", "revenue", "runtime"])
         self._calculate_tfidf_matrix()
+
 
     def _preprocess_data(self):
         self.item_profile["item_ID"] = self.item_profile["item_ID"].astype(str)
         self.user_ratings["item_ID"] = self.user_ratings["item_ID"].astype(str)
         self.user_ratings["user_ID"] = self.user_ratings["user_ID"].astype(str)
 
+    def _check_features_correlation(self, features: List[str]) -> None:
+        irrelevant_features = []  #  list for irrelevant feature that will be removed
 
-    def _calculate_tfidf_matrix(self):
+        for feature in features:
+            if feature not in self.item_profile.columns:
+                continue
+
+            # combine item and user profofile
+            merged_data = pd.merge(self.user_ratings, self.item_profile, on="item_ID")
+
+            # convert to numeric
+            feature_data = pd.to_numeric(merged_data[feature].fillna(0), errors="coerce")
+            rating_data = pd.to_numeric(merged_data["rating"].fillna(0), errors="coerce")
+
+            # calculate the correlation between the user rating and the feature
+            correlation, p_value = stats.pearsonr(feature_data, rating_data)
+
+            # check if the correlation is relevant / significant
+            if abs(correlation) < 0.1 or p_value > 0.05:
+                logger.debug(f"Feature '{feature}' does not have a sigificant correlation and will be ignored.")
+                irrelevant_features.append(feature)
+            else:
+                logger.debug(f"Feature '{feature}' has a significant correlation: {correlation}")
+
+        self.item_profile.drop(columns=irrelevant_features, inplace=True)
+
+
+    def _safe_get_feature(self, feature_name):
+        if feature_name in self.item_profile.columns:
+            return self.item_profile[feature_name]
+        else:
+            return None
+
+    def _calculate_tfidf_matrix(self) -> None:
         # optional but if the title is empty we set it as an empty string
         self.item_profile["title"] = self.item_profile["title"].fillna("")
 
@@ -38,25 +76,42 @@ class ContentBasedRecommender(Recommender):
 
         # change genre columns in text by just extracting the word after '"Genre_"'
         genre_cols = [col for col in self.item_profile.columns if col.startswith("Genre_")]
-        self.item_profile["genre_text"] = self.item_profile[genre_cols].astype(int).apply(
-            lambda row: " ".join([col.replace("Genre_", "") for col, val in row.items() if val == 1]), axis=1
-        )
-
-        # again use the TfidfVectorizer() to transform the genres into numerical feature
-        genre_vectorizer = TfidfVectorizer()
-        genre_features = genre_vectorizer.fit_transform(self.item_profile["genre_text"])
+        if genre_cols:
+            self.item_profile["genre_text"] = self.item_profile[genre_cols].astype(int).apply(
+                lambda row: " ".join([col.replace("Genre_", "") for col, val in row.items() if val == 1]), axis=1
+            )
+            genre_vectorizer = TfidfVectorizer()
+            genre_features = genre_vectorizer.fit_transform(self.item_profile["genre_text"])
+        else:
+            genre_features = np.empty((len(self.item_profile), 0))
 
         # the language of the items transformed into one-hot-encoded-dummies
         language_dummies = pd.get_dummies(self.item_profile["original_language"], prefix="lang")
-        runtime_bucket = pd.qcut(self.item_profile["runtime"], q=3, labels=["kurz", "mittel", "lang"])
-        runtime_dummies = pd.get_dummies(runtime_bucket, prefix="runtime")
+
+        # put runtime into three categories (short, medium, long)
+        runtime_feature = self._safe_get_feature("runtime")
+        if runtime_feature is not None:
+            runtime_bucket = pd.qcut(runtime_feature, q=3, labels=["kurz", "mittel", "lang"])
+            runtime_dummies = pd.get_dummies(runtime_bucket, prefix="runtime")
+        else:
+            runtime_dummies = pd.DataFrame(index=self.item_profile.index)
 
         # budget and include will be logarithmically transformed and then scaled
-        self.item_profile["log_budget"] = np.log1p(self.item_profile["budget"].fillna(0))
-        self.item_profile["log_revenue"] = np.log1p(self.item_profile["revenue"].fillna(0))
-        scaler = StandardScaler()
-        scaled_numericals = scaler.fit_transform(self.item_profile[["log_budget", "log_revenue"]])
+        numerical_features = []
+        if "budget" in self.item_profile.columns:
+            self.item_profile["log_budget"] = np.log1p(self.item_profile["budget"].fillna(0))
+            numerical_features.append("log_budget")
+        if "revenue" in self.item_profile.columns:
+            self.item_profile["log_revenue"] = np.log1p(self.item_profile["revenue"].fillna(0))
+            numerical_features.append("log_revenue")
 
+        if numerical_features:
+            scaler = StandardScaler()
+            scaled_numericals = scaler.fit_transform(self.item_profile[numerical_features])
+        else:
+            scaled_numericals = np.empty((len(self.item_profile), 0))
+
+        # create feature matrix
         self.feature_matrix = hstack([
             title_features,
             genre_features,
@@ -81,7 +136,8 @@ class ContentBasedRecommender(Recommender):
             item_id: str,
             similarity: Optional[Literal['cosine', 'pearson']] = 'cosine',  # only for collaborative filtering
             calculation_variety: Optional[Literal['weighted', 'unweighted']] = 'weighted', # only for collaborative filtering
-            k: Optional[int] = 3) -> float:
+            k: Optional[int] = 3,
+            second_k_value: Optional[int] = None) -> float:
 
         # default function to save all the information
         self._prepare_information(user_id=user_id, item_id=item_id, k=k)

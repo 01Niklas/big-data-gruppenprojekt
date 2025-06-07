@@ -85,14 +85,21 @@ class CollaborativeFilteringRecommender(Recommender):
 
         return self.data.loc[rated_items + [self.item_id]]
 
-    def _process_user_based(self):
+    def _process_user_based(self) -> pd.DataFrame:
         # filter based on the item. Only the users that already gave a rating are relevant
         relevant_df = self.data[self.data[self.item_id] > 0.0]
 
         # add the user we are looking for (due to non-existing rating this user where filtered out)
         return pd.concat([relevant_df, self.data.loc[[self.user_id]]])
 
-    def predict(self, user_id: str, item_id: str, similarity: Literal['cosine', 'pearson'] = 'cosine', calculation_variety: Literal['weighted', 'unweighted'] = 'weighted', k: Optional[int] = 3) -> float:
+    def predict(
+            self,
+            user_id: str,
+            item_id: str,
+            similarity: Literal['cosine', 'pearson'] = 'cosine',
+            calculation_variety: Literal['weighted', 'unweighted'] = 'weighted',
+            k: Optional[int] = 3,
+            second_k_value: Optional[int] = None) -> float:
         self._prepare_information(user_id=user_id, item_id=item_id, similarity=similarity, calculation_variant=calculation_variety, k=k)
         self._check_values()
 

@@ -20,13 +20,14 @@ class HybridRecommender(Recommender):
             item_id: str,
             similarity: Optional[Literal['cosine', 'pearson']] = 'cosine',  # only for collaborative filtering
             calculation_variety: Optional[Literal['weighted', 'unweighted']] = 'weighted', # only for collaborative filtering
-            k: Optional[int] = 3):
+            k: Optional[int] = 3,
+            second_k_value: Optional[int] = None):
 
         collaborative_prediction = self.collaborative_recommender.predict(
             user_id=user_id,
             item_id=item_id,
-            similarity=similarity,
-            calculation_variety=calculation_variety,
+            similarity=similarity, # ignore that it can be NONE
+            calculation_variety=calculation_variety, # ignore that it can be NONE
             k=k
         )
 
@@ -36,7 +37,7 @@ class HybridRecommender(Recommender):
             item_id=item_id,
             similarity=similarity,
             calculation_variety=calculation_variety,
-            k=k
+            k=second_k_value
         )
 
         # combine both with alpha as weight

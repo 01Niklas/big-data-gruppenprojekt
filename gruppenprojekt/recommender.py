@@ -31,5 +31,6 @@ class Recommender:
             item_id: str,
             similarity: Optional[Literal['cosine', 'pearson']] = 'cosine',   # only for collaborative filtering
             calculation_variety: Optional[Literal['weighted', 'unweighted']] = 'weighted',  # only for collaborative filtering
-            k: Optional[int] = 3):
+            k: Optional[int] = 3,
+            second_k_value: Optional[int] = None):
         ...
