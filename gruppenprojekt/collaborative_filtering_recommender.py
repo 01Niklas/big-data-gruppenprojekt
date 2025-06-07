@@ -92,7 +92,7 @@ class CollaborativeFilteringRecommender(Recommender):
         # add the user we are looking for (due to non-existing rating this user where filtered out)
         return pd.concat([relevant_df, self.data.loc[[self.user_id]]])
 
-    def predict(self, user_id: str, item_id: str, similarity: Literal['cosine', 'pearson'] = 'cosine', calculation_variety: Literal['weighted', 'unweighted'] = 'weighted', k: Optional[int] = 3):
+    def predict(self, user_id: str, item_id: str, similarity: Literal['cosine', 'pearson'] = 'cosine', calculation_variety: Literal['weighted', 'unweighted'] = 'weighted', k: Optional[int] = 3) -> float:
         self._prepare_information(user_id=user_id, item_id=item_id, similarity=similarity, calculation_variant=calculation_variety, k=k)
         self._check_values()
 
