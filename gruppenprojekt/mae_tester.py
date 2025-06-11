@@ -8,26 +8,34 @@ from tqdm import tqdm
 from gruppenprojekt.hybrid_Recommender import HybridRecommender
 from gruppenprojekt.collaborative_filtering_recommender import CollaborativeFilteringRecommender
 from gruppenprojekt.content_based_recommender import ContentBasedRecommender
+from gruppenprojekt.deep_learning_recommender import DeepLearningRecommender
 
 class Test(BaseModel):
     name: str
-    type: Literal["collaborative_filtering", "content_based", "hybrid"]
+    type: Literal["collaborative_filtering", "content_based", "hybrid", "deep_learning"]
     mode: Optional[Literal["user", "item"]] = "item"
-    k_value: int
+    k_value: Optional[int] = 3
     second_k_value: Optional[int] = 3
     metric: Optional[Literal["cosine", "pearson"]] = 'cosine'
     calculation_variety: Optional[Literal["weighted", "unweighted"]] = 'weighted'
+    batch_size: Optional[int] = 0
+    embedding_dim: Optional[int] = 0
+    epochs: Optional[int] = 0
     alpha: Optional[float] = 0.5
 
 
 class TestResult(BaseModel):
     name: str
-    type: Literal["collaborative_filtering", "content_based", "hybrid"]
-    mode: Literal["user", "item"]
-    k_value: int
-    metric: Literal["cosine", "pearson"]
-    calculation_variety: Literal["weighted", "unweighted"]
-    alpha: float
+    type: Literal["collaborative_filtering", "content_based", "hybrid", "deep_learning"]
+    mode: Literal["user", "item"] | None
+    k_value: int | None
+    second_k_value: int | None
+    metric: Literal["cosine", "pearson"] | None
+    calculation_variety: Literal["weighted", "unweighted"] | None
+    alpha: float | None
+    epochs: int | None
+    batch_size: int | None
+    embedding_dim: int | None
     mae: float
 
 
@@ -58,10 +66,59 @@ class MAETester:
     def _round_to_nearest_half(self, value: float):
         return round(value * 2) / 2
 
+    def _run_deep_learning_recommender(self, test: Test) -> TestResult:
+        logger.info(f"Running Deep Learning Recommender test: {test.name}")
+
+        recommender = DeepLearningRecommender(
+            embedding_dim=test.embedding_dim,
+            data=self.user_ratings,
+            batch_size=test.batch_size,
+            epochs=test.epochs
+        )
+
+        predictions = []
+        actuals = []
+
+        testdata_list = self.testdata.to_numpy()
+
+        for row in tqdm(testdata_list, desc="Vorhersagen werden berechnet"):
+            user_id: str = str(row[0])
+            item_id: str = str(row[1])
+            actual_rating = row[2]
+
+            try:
+                predicted_rating = recommender.predict(user_id=user_id, item_id=item_id)
+                predicted_rating = self._round_to_nearest_half(predicted_rating)
+
+                predictions.append(predicted_rating)
+                actuals.append(actual_rating)
+            except ValueError as e:
+                logger.warning(f"Fehler bei der Vorhersage: {e}")
+
+        mae = self._mean_absolute_error(actuals, predictions)
+
+        return TestResult(
+            name="deep_learning",
+            type=test.type,
+            mode=None,  # Falls nicht relevant, auf `None` setzen
+            k_value=None,  # Falls nicht relevant, auf `None` setzen
+            metric=None,  # Falls nicht relevant, auf `None` setzen
+            calculation_variety=None,  # Falls nicht relevant, auf `None` setzen
+            alpha=None,  # Falls nicht relevant, auf `None` setzen
+            mae=mae,
+            second_k_value=None,
+            epochs=test.epochs,
+            batch_size=test.batch_size,
+            embedding_dim=test.embedding_dim
+        )
+
 
     def run_tests(self) -> pd.DataFrame:
         for test in self.tests:
-            result = self._run_test(test)
+            if test.type == "deep_learning":
+                result = self._run_deep_learning_recommender(test)
+            else:
+                result = self._run_test(test)
             self.results.append(result)
             logger.success(f"Test abgeschlossen: {test.name}, MAE: {result.mae:.4f}\n")
 
@@ -134,6 +191,10 @@ class MAETester:
             metric=test.metric,
             calculation_variety=test.calculation_variety,
             alpha=test.alpha,
+            batch_size=test.batch_size,
+            embedding_dim=test.embedding_dim,
+            epochs=test.epochs,
+            second_k_value=test.second_k_value,
             mae=mae,
         )
 

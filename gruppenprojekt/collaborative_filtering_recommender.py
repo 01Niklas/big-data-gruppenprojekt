@@ -15,7 +15,6 @@ class CollaborativeFilteringRecommender(Recommender):
         self.mode = mode
         self._preprocess_data()
 
-
     def _preprocess_data(self) -> None:
         self.original_data = self.original_data.set_index("user_ID")
         self.original_data.index = self.original_data.index.astype(str) # convert the index to string (due to error with int values)
@@ -26,7 +25,8 @@ class CollaborativeFilteringRecommender(Recommender):
 
 
     def _calculate_distance_and_indices(self, dataframe: pd.DataFrame) -> ([], []):
-        knn = NearestNeighbors(metric="cosine", algorithm='brute')
+        metric = "cosine" if self.similarity == 'cosine' else "euclidean"
+        knn = NearestNeighbors(metric=metric, algorithm='brute')
         knn.fit(dataframe.values)
         distances, indices = knn.kneighbors(dataframe.values, n_neighbors=self.k + 1)
 
@@ -40,16 +40,17 @@ class CollaborativeFilteringRecommender(Recommender):
 
         return similar_distances, similar_indices
 
-    def _calculate_similarities(self, similar_distances: np.ndarray) -> np.ndarray:
+    @staticmethod
+    def _calculate_similarities(similar_distances: np.ndarray) -> np.ndarray:
         similarity = [1 - x for x in similar_distances]
         similarity = [(y + 1) / 2 for y in similarity]
         return np.array(similarity)
 
-    def _calculate_result(self, similarity: np.ndarray, ratings: np.ndarray) -> float:
+    def _calculate_result(self, ratings: np.ndarray) -> float:
         if self.calculation_variant == "weighted":
             return float(np.mean(ratings))
         else:
-            raise ValueError(f"This calculation method is not implemented yet.")
+            raise ValueError(f"This calculation method is not implemented yet due to the dataset which is already weighted.")
 
     def _check_values(self) -> None:
         if self.mode == 'user':
@@ -83,7 +84,8 @@ class CollaborativeFilteringRecommender(Recommender):
         # add the user we are looking for (due to non-existing rating this user where filtered out)
         return pd.concat([relevant_df, self.data.loc[[self.user_id]]])
 
-    def _normalize_for_pearson(self, relevant_df: pd.DataFrame) -> pd.DataFrame:
+    @staticmethod
+    def _normalize_for_pearson(relevant_df: pd.DataFrame) -> pd.DataFrame:
         mean_values = relevant_df.mean(axis=1).to_numpy()
         relevant_df = relevant_df.sub(mean_values, axis=0)
         return relevant_df
@@ -117,7 +119,7 @@ class CollaborativeFilteringRecommender(Recommender):
             ratings = relevant_df.iloc[similar_indices][self.item_id].to_numpy()
 
         similarity = self._calculate_similarities(similar_distances)
-        result = self._calculate_result(similarity, ratings)
+        result = self._calculate_result(ratings)
 
         if self.display_results_for_each_step:
           self.explain(similar_indices, relevant_df, ratings, similarity, result)
