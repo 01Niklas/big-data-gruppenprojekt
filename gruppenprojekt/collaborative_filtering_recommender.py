@@ -15,7 +15,17 @@ class CollaborativeFilteringRecommender(Recommender):
         self.original_data = data
         self.mode = mode
         self.data = None
+        self.knn: Optional[NearestNeighbors] = None
+        self.knn_metric: Optional[str] = None
         self._preprocess_data()
+        # pre-train default knn with cosine similarity
+        self._init_knn(metric="cosine")
+
+    def _init_knn(self, metric: str) -> None:
+        """Initialise and fit a kNN model for the given metric."""
+        self.knn = NearestNeighbors(metric=metric, algorithm="brute")
+        self.knn.fit(self.data.values)
+        self.knn_metric = metric
 
 
     def _preprocess_data(self) -> None:
@@ -27,18 +37,52 @@ class CollaborativeFilteringRecommender(Recommender):
             self.data = self.original_data  # original for user based
 
 
-    def _calculate_distance_and_indices(self, dataframe: pd.DataFrame) -> ([], []):
-        knn = NearestNeighbors(metric=self.similarity, algorithm='brute')
-        knn.fit(dataframe.values)
-        distances, indices = knn.kneighbors(dataframe.values, n_neighbors=self.k + 1)
+    def _calculate_distance_and_indices(self, allowed_indices: list[int]) -> (np.ndarray, np.ndarray):
+        """Return distances and indices of the k nearest neighbours limited to allowed indices."""
+        if self.similarity == "cosine":
+            # reuse knn if possible
+            if self.knn is None or self.knn_metric != "cosine":
+                self._init_knn(metric="cosine")
 
-        if self.mode == 'item':
-            index = dataframe.index.get_loc(self.item_id)
+            if self.mode == "item":
+                index = self.data.index.get_loc(self.item_id)
+            else:
+                index = self.data.index.get_loc(self.user_id)
+
+            distances, indices = self.knn.kneighbors(
+                self.data.iloc[[index]], n_neighbors=len(self.data)
+            )
+
+            similar_distances = distances.flatten()[1:]
+            similar_indices = indices.flatten()[1:]
+            # restrict to allowed indices
+            filtered = [(d, idx) for d, idx in zip(similar_distances, similar_indices) if idx in allowed_indices]
+            if filtered:
+                similar_distances, similar_indices = zip(*filtered)
+                similar_distances = np.array(similar_distances)[: self.k]
+                similar_indices = np.array(similar_indices, dtype=int)[: self.k]
+            else:
+                similar_distances = np.array([])
+                similar_indices = np.array([], dtype=int)
+        elif self.similarity == "pearson":
+            if self.mode == "item":
+                index = self.data.index.get_loc(self.item_id)
+            else:
+                index = self.data.index.get_loc(self.user_id)
+
+            matrix = self.data.fillna(0.0).to_numpy(dtype=float)
+            query = matrix[index]
+            correlations = np.array([
+                np.corrcoef(query, row)[0, 1] if np.std(row) > 0 else 0.0
+                for row in matrix
+            ])
+            correlations[index] = -1  # ignore self
+            sorted_idx = np.argsort(correlations)[::-1]
+            filtered = [idx for idx in sorted_idx if idx in allowed_indices]
+            similar_indices = np.array(filtered[: self.k])
+            similar_distances = correlations[similar_indices]
         else:
-            index = dataframe.index.get_loc(self.user_id)
-
-        similar_distances = distances[index, 1:]
-        similar_indices = indices[index, 1:]
+            raise ValueError("Unsupported similarity metric.")
 
         return similar_distances, similar_indices
 
@@ -47,16 +91,20 @@ class CollaborativeFilteringRecommender(Recommender):
             similarity = [1 - x for x in similar_distances]
             similarity = [(y + 1) / 2 for y in similarity]
             return np.array(similarity)
+        elif self.similarity == 'pearson':
+            # distances are already correlation coefficients
+            return np.nan_to_num(similar_distances)
         else:
-            # TODO: add pearson?
             raise ValueError("Unsupported similarity metric.")
 
     def _calculate_result(self, similarity: np.ndarray, ratings: np.ndarray) -> float:
         if self.calculation_variant == "weighted":
+            if similarity.sum() == 0:
+                return float(np.mean(ratings)) if len(ratings) > 0 else 0.0
             mean = np.dot(ratings, similarity) / similarity.sum()
-            return mean
+            return float(mean)
         else:
-            return float(np.mean(ratings))
+            return float(np.mean(ratings)) if len(ratings) > 0 else 0.0
 
 
     def _check_values(self) -> None:
@@ -110,12 +158,13 @@ class CollaborativeFilteringRecommender(Recommender):
 
         # make sure that there are no NaN values -> set NaN to 0.0
         relevant_df = relevant_df.fillna(0.0)
-        similar_distances, similar_indices = self._calculate_distance_and_indices(dataframe=relevant_df)
+        allowed_indices = [self.data.index.get_loc(idx) for idx in relevant_df.index]
+        similar_distances, similar_indices = self._calculate_distance_and_indices(allowed_indices)
 
         if self.mode == 'item':
-            ratings = relevant_df.iloc[similar_indices][self.user_id].to_numpy()
+            ratings = self.data.iloc[similar_indices][self.user_id].to_numpy()
         else:
-            ratings = relevant_df.iloc[similar_indices][self.item_id].to_numpy()
+            ratings = self.data.iloc[similar_indices][self.item_id].to_numpy()
 
         similarity = self._calculate_similarities(similar_distances)
         result = self._calculate_result(similarity, ratings)

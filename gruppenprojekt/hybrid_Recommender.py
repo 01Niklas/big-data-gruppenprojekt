@@ -1,5 +1,7 @@
 from typing import Literal, Optional
 
+import numpy as np
+
 import pandas as pd
 
 from gruppenprojekt.collaborative_filtering_recommender import CollaborativeFilteringRecommender
@@ -13,6 +15,29 @@ class HybridRecommender(Recommender):
         self.collaborative_recommender = CollaborativeFilteringRecommender(data=data, mode=mode)
         self.content_based_recommender = ContentBasedRecommender(item_profile=item_profile, user_ratings=user_ratings)
         self.alpha = alpha
+
+    def optimize_alpha(self, validation_data: pd.DataFrame, alphas: list[float]) -> float:
+        """Find the best alpha on validation data based on MAE."""
+        best_alpha = self.alpha
+        best_mae = float("inf")
+        for a in alphas:
+            self.alpha = a
+            preds = []
+            actuals = []
+            for _, row in validation_data.iterrows():
+                preds.append(
+                    self.predict(
+                        user_id=str(row["user_ID"]),
+                        item_id=str(row["item_ID"]),
+                    )
+                )
+                actuals.append(row["rating"])
+            mae = float(np.mean(np.abs(np.array(preds) - np.array(actuals))))
+            if mae < best_mae:
+                best_mae = mae
+                best_alpha = a
+        self.alpha = best_alpha
+        return best_alpha
 
     def predict(
             self,

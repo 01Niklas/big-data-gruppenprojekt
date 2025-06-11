@@ -21,11 +21,14 @@ class ContentBasedRecommender(Recommender):
         self.user_ratings = user_ratings
         self.k = 3
         self.feature_matrix = None
+        self.knn: Optional[NearestNeighbors] = None
+        self.item_index_map: dict[str, int] = {}
         self._preprocess_data()
 
         # check if the features "budget", "revenue", "runtime" are relevant for the item/rating correlation
         self._check_features_correlation(features=["budget", "revenue", "runtime"])
         self._calculate_tfidf_matrix()
+        self._init_knn()
 
 
     def _preprocess_data(self):
@@ -122,6 +125,14 @@ class ContentBasedRecommender(Recommender):
 
         self.feature_matrix = csr_matrix(self.feature_matrix)
 
+    def _init_knn(self) -> None:
+        """Initialise KNN model and build index mapping."""
+        self.knn = NearestNeighbors(metric="cosine", algorithm="brute")
+        self.knn.fit(self.feature_matrix)
+        self.item_index_map = {
+            str(item_id): idx for idx, item_id in enumerate(self.item_profile["item_ID"])
+        }
+
     def _check_values(self):
         if self.user_id not in self.user_ratings["user_ID"].values:
             raise ValueError(f"User-ID {self.user_id} not found.")
@@ -153,26 +164,21 @@ class ContentBasedRecommender(Recommender):
         if self.k > len(rated_item_ids):
             self.k = len(rated_item_ids)
 
-        # extract the rated item indices from the item profile
-        rated_item_indices = self.item_profile[self.item_profile["item_ID"].isin(rated_item_ids)].index
+        rated_item_indices = [self.item_index_map[item] for item in rated_item_ids if item in self.item_index_map]
 
         # check if the user rated some items... if not then return 0.0
         if len(rated_item_indices) == 0:
             return 0.0
 
-        # get the feature matrix that is calculated in the '_calculate_tfidf_matrix()'-Method
-        filtered_matrix = self.feature_matrix[rated_item_indices]
+        item_index = self.item_index_map.get(item_id)
+        if item_index is None:
+            return 0.0
 
-        # default kNN usage like in the lecture with brute algorithm and cosine as metric
-        knn = NearestNeighbors(metric="cosine", algorithm="brute")
-        knn.fit(filtered_matrix)
-
-        item_index = self.item_profile[self.item_profile["item_ID"] == item_id].index[0]
-        distances, indices = knn.kneighbors(self.feature_matrix[item_index], n_neighbors=self.k + 1)  # k+1 because the item itself is also included
+        distances, indices = self.knn.kneighbors(self.feature_matrix[item_index], n_neighbors=len(self.item_profile))
 
         # the similar item indices beginning with the first real neighbor
-        similar_items = indices.flatten()[1:]
-        similar_item_indices = rated_item_indices[similar_items]
+        similar_items = [idx for idx in indices.flatten() if idx in rated_item_indices and idx != item_index][: self.k]
+        similar_item_indices = similar_items
 
         # extract for each item in the similar item indices list the rating and save it in the list
         similar_ratings = []
