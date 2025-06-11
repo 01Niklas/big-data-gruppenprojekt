@@ -16,6 +16,7 @@ pytest = "^8.3.5"
 loguru = "^0.7.3"
 pydantic = "^2.11.5"
 scipy = "^1.15.3"
+tqdm = "^4.67.1"
 
 
 [build-system]

@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from loguru import logger
 import pandas as pd
 from datetime import datetime
+from tqdm import tqdm
 
 from gruppenprojekt.hybrid_Recommender import HybridRecommender
 from gruppenprojekt.collaborative_filtering_recommender import CollaborativeFilteringRecommender
@@ -53,6 +54,10 @@ class MAETester:
         self.testdata["user_ID"] = self.testdata["user_ID"].astype(str)
         self.testdata["item_ID"] = self.testdata["item_ID"].astype(str)
 
+    # because we only have 0.5 steps in testdata
+    def _round_to_nearest_half(self, value: float):
+        return round(value * 2) / 2
+
 
     def run_tests(self) -> pd.DataFrame:
         for test in self.tests:
@@ -97,7 +102,7 @@ class MAETester:
 
         testdata_list = self.testdata.to_numpy()
 
-        for row in testdata_list:
+        for row in tqdm(testdata_list, desc="Vorhersagen werden berechnet"):
             user_id: str = str(row[0])
             item_id: str = str(row[1])
             actual_rating = row[2]
@@ -111,6 +116,9 @@ class MAETester:
                     k=test.k_value,
                     second_k_value=test.second_k_value,
                 )
+
+                predicted_rating = self._round_to_nearest_half(predicted_rating)
+
                 predictions.append(predicted_rating)
                 actuals.append(actual_rating)
             except ValueError as e:

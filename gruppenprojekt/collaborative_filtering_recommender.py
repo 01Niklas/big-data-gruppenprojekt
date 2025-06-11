@@ -1,9 +1,7 @@
-from typing import Optional, Literal
-
 import numpy as np
 import pandas as pd
-from loguru import logger
 from sklearn.neighbors import NearestNeighbors
+from typing import Optional, Literal
 
 from gruppenprojekt.recommender import Recommender
 
@@ -27,15 +25,13 @@ class CollaborativeFilteringRecommender(Recommender):
         self.knn.fit(self.data.values)
         self.knn_metric = metric
 
-
     def _preprocess_data(self) -> None:
         self.original_data = self.original_data.set_index("user_ID")
-        self.original_data.index = self.original_data.index.astype(str) # convert the index to string (due to error with int values)
+        self.original_data.index = self.original_data.index.astype(str)  # convert the index to string (due to error with int values)
         if self.mode == 'item':
             self.data = self.original_data.T  # transpose for item based
         else:
             self.data = self.original_data  # original for user based
-
 
     def _calculate_distance_and_indices(self, allowed_indices: list[int]) -> (np.ndarray, np.ndarray):
         """Return distances and indices of the k nearest neighbours limited to allowed indices."""
@@ -49,13 +45,9 @@ class CollaborativeFilteringRecommender(Recommender):
             else:
                 index = self.data.index.get_loc(self.user_id)
 
-            distances, indices = self.knn.kneighbors(
-                self.data.iloc[[index]], n_neighbors=len(self.data)
-            )
-
+            distances, indices = self.knn.kneighbors(self.data.iloc[[index]], n_neighbors=len(self.data))
             similar_distances = distances.flatten()[1:]
             similar_indices = indices.flatten()[1:]
-            # restrict to allowed indices
             filtered = [(d, idx) for d, idx in zip(similar_distances, similar_indices) if idx in allowed_indices]
             if filtered:
                 similar_distances, similar_indices = zip(*filtered)
@@ -92,7 +84,6 @@ class CollaborativeFilteringRecommender(Recommender):
             similarity = [(y + 1) / 2 for y in similarity]
             return np.array(similarity)
         elif self.similarity == 'pearson':
-            # distances are already correlation coefficients
             return np.nan_to_num(similar_distances)
         else:
             raise ValueError("Unsupported similarity metric.")
@@ -106,7 +97,6 @@ class CollaborativeFilteringRecommender(Recommender):
         else:
             return float(np.mean(ratings)) if len(ratings) > 0 else 0.0
 
-
     def _check_values(self) -> None:
         if self.mode == 'user':
             if self.user_id not in self.data.index:
@@ -115,30 +105,25 @@ class CollaborativeFilteringRecommender(Recommender):
                 raise ValueError(f"Item {self.item_id} nicht in Daten.")
         elif self.mode == 'item':
             if self.user_id not in self.original_data.index:
-                raise ValueError(
-                    f"User {self.user_id} nicht in Originaldaten.")
+                raise ValueError(f"User {self.user_id} nicht in Originaldaten.")
             if self.item_id not in self.data.index:
-                raise ValueError(
-                    f"Item {self.item_id} nicht in transponierten Daten.")
-
+                raise ValueError(f"Item {self.item_id} nicht in transponierten Daten.")
 
     def _process_item_based(self) -> pd.DataFrame:
         user_ratings = self.original_data.loc[self.user_id]
-
-        # filter based on the item. Only the users that already gave a rating are relevant
         rated_items = user_ratings[user_ratings > 0.0].index.tolist()
-
         if not rated_items:
             raise ValueError(f"User {self.user_id} hat keine Items bewertet!")
-
         return self.data.loc[rated_items + [self.item_id]]
 
     def _process_user_based(self) -> pd.DataFrame:
-        # filter based on the item. Only the users that already gave a rating are relevant
         relevant_df = self.data[self.data[self.item_id] > 0.0]
-
-        # add the user we are looking for (due to non-existing rating this user where filtered out)
         return pd.concat([relevant_df, self.data.loc[[self.user_id]]])
+
+    def _normalize_for_pearson(self, relevant_df: pd.DataFrame) -> pd.DataFrame:
+        mean_values = relevant_df.mean(axis=1).to_numpy()
+        relevant_df = relevant_df.sub(mean_values, axis=0)
+        return relevant_df
 
     def predict(
             self,
@@ -156,7 +141,9 @@ class CollaborativeFilteringRecommender(Recommender):
         else:
             relevant_df = self._process_user_based()
 
-        # make sure that there are no NaN values -> set NaN to 0.0
+        if similarity == 'pearson':
+            self._normalize_for_pearson(relevant_df)
+
         relevant_df = relevant_df.fillna(0.0)
         allowed_indices = [self.data.index.get_loc(idx) for idx in relevant_df.index]
         similar_distances, similar_indices = self._calculate_distance_and_indices(allowed_indices)
