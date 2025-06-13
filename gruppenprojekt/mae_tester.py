@@ -18,9 +18,9 @@ class Test(BaseModel):
     second_k_value: Optional[int] = 3
     metric: Optional[Literal["cosine", "pearson"]] = 'cosine'
     calculation_variety: Optional[Literal["weighted", "unweighted"]] = 'weighted'
-    batch_size: Optional[int] = 0
-    embedding_dim: Optional[int] = 0
-    epochs: Optional[int] = 0
+    batch_size: Optional[int] = 128
+    embedding_dim: Optional[int] = 16
+    epochs: Optional[int] = 25
     alpha: Optional[float] = 0.5
 
 
@@ -48,11 +48,11 @@ class TestResults(BaseModel): # just for saving in a "pretty" form
 
 
 class MAETester:
-    def __init__(self, tests: List[Test], test_data_path: str, data_path: str, item_profile_path: str, user_ratings: str):
+    def __init__(self, tests: List[Test], test_data_path: str, data_path: str, item_profile_path: str, ratings: str):
         self.tests = tests
         self.testdata = pd.read_csv(test_data_path)  # testdata (for evaluaton)
         self.item_profile = pd.read_csv(item_profile_path)
-        self.user_ratings = pd.read_csv(user_ratings)
+        self.user_ratings = pd.read_csv(ratings)
         self._prepare_data()
         self.data = pd.read_csv(data_path)  # trainings-data
         self.results: List[TestResult] = []
@@ -63,66 +63,17 @@ class MAETester:
         self.testdata["item_ID"] = self.testdata["item_ID"].astype(str)
 
     # because we only have 0.5 steps in testdata
-    def _round_to_nearest_half(self, value: float):
+    @staticmethod
+    def _round_to_nearest_half(value: float):
         return round(value * 2) / 2
-
-    def _run_deep_learning_recommender(self, test: Test) -> TestResult:
-        logger.info(f"Running Deep Learning Recommender test: {test.name}")
-
-        recommender = DeepLearningRecommender(
-            embedding_dim=test.embedding_dim,
-            data=self.user_ratings,
-            batch_size=test.batch_size,
-            epochs=test.epochs
-        )
-
-        predictions = []
-        actuals = []
-
-        testdata_list = self.testdata.to_numpy()
-
-        for row in tqdm(testdata_list, desc="Vorhersagen werden berechnet"):
-            user_id: str = str(row[0])
-            item_id: str = str(row[1])
-            actual_rating = row[2]
-
-            try:
-                predicted_rating = recommender.predict(user_id=user_id, item_id=item_id)
-                predicted_rating = self._round_to_nearest_half(predicted_rating)
-
-                predictions.append(predicted_rating)
-                actuals.append(actual_rating)
-            except ValueError as e:
-                logger.warning(f"Fehler bei der Vorhersage: {e}")
-
-        mae = self._mean_absolute_error(actuals, predictions)
-
-        return TestResult(
-            name="deep_learning",
-            type=test.type,
-            mode=None,  # Falls nicht relevant, auf `None` setzen
-            k_value=None,  # Falls nicht relevant, auf `None` setzen
-            metric=None,  # Falls nicht relevant, auf `None` setzen
-            calculation_variety=None,  # Falls nicht relevant, auf `None` setzen
-            alpha=None,  # Falls nicht relevant, auf `None` setzen
-            mae=mae,
-            second_k_value=None,
-            epochs=test.epochs,
-            batch_size=test.batch_size,
-            embedding_dim=test.embedding_dim
-        )
-
 
     def run_tests(self) -> pd.DataFrame:
         for test in self.tests:
-            if test.type == "deep_learning":
-                result = self._run_deep_learning_recommender(test)
-            else:
-                result = self._run_test(test)
+            result = self._run_test(test)
             self.results.append(result)
             logger.success(f"Test abgeschlossen: {test.name}, MAE: {result.mae:.4f}\n")
 
-        # display final results
+        # display final resultse
         result_df = self._summarize_test_results()
 
         # save final results to file
@@ -151,6 +102,14 @@ class MAETester:
                 mode=test.mode,  # ignore type (that this can be NONE)
                 alpha=test.alpha,
             )
+        elif test.type == "deep_learning":
+            recommender = DeepLearningRecommender(
+                ratings=self.user_ratings,
+                batch_size=test.batch_size,
+                epochs=test.epochs,
+                embedding_dim=test.embedding_dim,
+                item_profile=self.item_profile
+            )
         else:
             raise ValueError(f"Unbekannter Recomendertyp: {test.type}")
 
@@ -173,8 +132,8 @@ class MAETester:
                     k=test.k_value,
                     second_k_value=test.second_k_value,
                 )
-
-                predicted_rating = self._round_to_nearest_half(predicted_rating)
+                #
+                # predicted_rating = self._round_to_nearest_half(value=predicted_rating)
 
                 predictions.append(predicted_rating)
                 actuals.append(actual_rating)
@@ -219,7 +178,10 @@ class MAETester:
             "k-Wert": result.k_value,
             "Metrik": result.metric if result.type == "collaborative_filtering" else "/",
             "Berechnungsvariante": result.calculation_variety if result.type == "collaborative_filtering" else "/",
-            "Alpha (weight)" : result.alpha if result.type == "hybrid" else "/",
+            "Alpha (weight)": result.alpha if result.type == "hybrid" else "/",
+            "Batch-Größe": result.batch_size if result.type == "deep_learning" else "/",
+            "Embedding-Dimension": result.embedding_dim if result.type == "deep_learning" else "/",
+            "Epochen": result.epochs if result.type == "deep_learning" else "/",
             "MAE": result.mae
         } for result in self.results])
 
