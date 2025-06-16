@@ -1,14 +1,15 @@
 from typing import List, Literal, Optional
-from pydantic import BaseModel
-from loguru import logger
+
 import pandas as pd
-from datetime import datetime
+from loguru import logger
+from pydantic import BaseModel
 from tqdm import tqdm
 
-from gruppenprojekt.hybrid_Recommender import HybridRecommender
 from gruppenprojekt.collaborative_filtering_recommender import CollaborativeFilteringRecommender
 from gruppenprojekt.content_based_recommender import ContentBasedRecommender
-from gruppenprojekt.deep_learning_recommender import DeepLearningRecommender
+from gruppenprojekt.deep_learning_recommender import HyperparamOptimizedDeepLearningRecommender
+from gruppenprojekt.hybrid_Recommender import HybridRecommender
+
 
 class Test(BaseModel):
     name: str
@@ -18,9 +19,6 @@ class Test(BaseModel):
     second_k_value: Optional[int] = 3
     metric: Optional[Literal["cosine", "pearson"]] = 'cosine'
     calculation_variety: Optional[Literal["weighted", "unweighted"]] = 'weighted'
-    batch_size: Optional[int] = 128
-    embedding_dim: Optional[int] = 16
-    epochs: Optional[int] = 25
     alpha: Optional[float] = 0.5
 
 
@@ -33,9 +31,6 @@ class TestResult(BaseModel):
     metric: Literal["cosine", "pearson"] | None
     calculation_variety: Literal["weighted", "unweighted"] | None
     alpha: float | None
-    epochs: int | None
-    batch_size: int | None
-    embedding_dim: int | None
     mae: float
 
 
@@ -48,19 +43,20 @@ class TestResults(BaseModel): # just for saving in a "pretty" form
 
 
 class MAETester:
-    def __init__(self, tests: List[Test], test_data_path: str, data_path: str, item_profile_path: str, ratings: str):
+    def __init__(self, tests: List[Test], test_data_path: str, data_path: str, item_profile_path: str, ratings: str, eval_data_path: str):
         self.tests = tests
-        self.testdata = pd.read_csv(test_data_path)  # testdata (for evaluaton)
+        self.testdata = pd.read_csv(test_data_path)  # testdata (for training of Neural Network)
         self.item_profile = pd.read_csv(item_profile_path)
         self.user_ratings = pd.read_csv(ratings)
+        self.eval_data = pd.read_csv(eval_data_path)  # eval / testdata for MAE tester
         self._prepare_data()
         self.data = pd.read_csv(data_path)  # trainings-data
         self.results: List[TestResult] = []
 
 
     def _prepare_data(self):
-        self.testdata["user_ID"] = self.testdata["user_ID"].astype(str)
-        self.testdata["item_ID"] = self.testdata["item_ID"].astype(str)
+        self.eval_data["user_ID"] = self.eval_data["user_ID"].astype(str)
+        self.eval_data["item_ID"] = self.eval_data["item_ID"].astype(str)
 
     # because we only have 0.5 steps in testdata
     @staticmethod
@@ -75,9 +71,6 @@ class MAETester:
 
         # display final resultse
         result_df = self._summarize_test_results()
-
-        # save final results to file
-        self._save_to_file()
 
         return result_df
 
@@ -103,12 +96,10 @@ class MAETester:
                 alpha=test.alpha,
             )
         elif test.type == "deep_learning":
-            recommender = DeepLearningRecommender(
-                ratings=self.user_ratings,
-                batch_size=test.batch_size,
-                epochs=test.epochs,
-                embedding_dim=test.embedding_dim,
-                item_profile=self.item_profile
+            recommender = HyperparamOptimizedDeepLearningRecommender(
+                trainingdata=self.user_ratings,
+                item_profile=self.item_profile,
+                testdata=self.testdata,
             )
         else:
             raise ValueError(f"Unbekannter Recomendertyp: {test.type}")
@@ -116,9 +107,9 @@ class MAETester:
         predictions = []
         actuals = []
 
-        testdata_list = self.testdata.to_numpy()
+        eval_data_list = self.eval_data.to_numpy()
 
-        for row in tqdm(testdata_list, desc="Vorhersagen werden berechnet"):
+        for row in tqdm(eval_data_list, desc="Vorhersagen werden berechnet"):
             user_id: str = str(row[0])
             item_id: str = str(row[1])
             actual_rating = row[2]
@@ -132,8 +123,8 @@ class MAETester:
                     k=test.k_value,
                     second_k_value=test.second_k_value,
                 )
-                #
-                # predicted_rating = self._round_to_nearest_half(value=predicted_rating)
+
+                predicted_rating = self._round_to_nearest_half(value=predicted_rating)
 
                 predictions.append(predicted_rating)
                 actuals.append(actual_rating)
@@ -150,9 +141,6 @@ class MAETester:
             metric=test.metric,
             calculation_variety=test.calculation_variety,
             alpha=test.alpha,
-            batch_size=test.batch_size,
-            embedding_dim=test.embedding_dim,
-            epochs=test.epochs,
             second_k_value=test.second_k_value,
             mae=mae,
         )
@@ -175,13 +163,10 @@ class MAETester:
             "Testname": result.name,
             "Recomendertyp": result.type,
             "Modus": result.mode if result.type == "collaborative_filtering" else "/",
-            "k-Wert": result.k_value,
+            "k-Wert": "/" if result.type == "deep_learning" else result.k_value,
             "Metrik": result.metric if result.type == "collaborative_filtering" else "/",
             "Berechnungsvariante": result.calculation_variety if result.type == "collaborative_filtering" else "/",
             "Alpha (weight)": result.alpha if result.type == "hybrid" else "/",
-            "Batch-Größe": result.batch_size if result.type == "deep_learning" else "/",
-            "Embedding-Dimension": result.embedding_dim if result.type == "deep_learning" else "/",
-            "Epochen": result.epochs if result.type == "deep_learning" else "/",
             "MAE": result.mae
         } for result in self.results])
 
@@ -191,26 +176,3 @@ class MAETester:
         print("-" * 50)
 
         return summary_df
-
-
-    def _save_to_file(self) -> None:
-        if not self.results:
-            logger.info("Keine Testergebnisse vorhanden, nichts zu speichern.")
-            return
-        date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        best_test = min(self.results, key=lambda result: result.mae)  # best results based on mae
-        test_results = TestResults(
-            date=date,
-            num_tests=len(self.results),
-            best_test=best_test,
-            results=self.results
-        )
-
-        file_path = f"./outputs/testergebnis_{date.replace(':', '-')}.json"
-
-        with open(file_path, "w", encoding="utf-8") as json_file:
-            json_file.write(test_results.model_dump_json(indent=4))
-
-        logger.success(f"Testergebnisse erfolgreich gespeichert.")
-
-

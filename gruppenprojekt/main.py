@@ -52,21 +52,16 @@ if __name__ == '__main__':
         Test(name="Hybrid_11", type="hybrid", mode="user", k_value=5, second_k_value=14, metric="pearson", calculation_variety="weighted", alpha=0.75),
         Test(name="Hybrid_12", type="hybrid", mode="user", k_value=5, second_k_value=14, metric="pearson", calculation_variety="weighted", alpha=0.25),
 
-        Test(name="deep_learning_large_embedding", type="deep_learning", embedding_dim=128, epochs=25, batch_size=128),
-        Test(name="deep_learning_small_batch", type="deep_learning", embedding_dim=64, epochs=25, batch_size=64),
-        Test(name="deep_learning_large_batch", type="deep_learning", embedding_dim=64, epochs=25, batch_size=256),
-        Test(name="deep_learning_more_epochs", type="deep_learning", embedding_dim=64, epochs=50, batch_size=128),
-        Test(name="deep_learning_less_epochs", type="deep_learning", embedding_dim=64, epochs=10, batch_size=128),
-        Test(name="deep_learning_less_epochs", type="deep_learning", embedding_dim=64, epochs=10, batch_size=128),
-        Test(name="deep_learning_finetuning_1", type="deep_learning", embedding_dim=48, epochs=10, batch_size=128),
-        Test(name="deep_learning_finetuning_2", type="deep_learning", embedding_dim=16, epochs=25, batch_size=128),
-        Test(name="deep_learning_finetuning_3", type="deep_learning", embedding_dim=16, epochs=25, batch_size=64),
+        Test(name="deep_learning", type="deep_learning"),
     ]
+
+    eval_data_path = "./data/Testdaten_FlixNet.csv"
 
     tester = MAETester(
         tests=tests,
         test_data_path="data/Testdaten_FlixNet.csv",
         data_path="data/Bewertungsmatrix_FlixNet.csv",
+        eval_data_path=eval_data_path,
         ratings="data/Ratings_FlixNet.csv",
         item_profile_path="data/Itemprofile_FlixNet.csv",
     )
