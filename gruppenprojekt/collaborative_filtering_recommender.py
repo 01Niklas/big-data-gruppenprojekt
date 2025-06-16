@@ -47,9 +47,10 @@ class CollaborativeFilteringRecommender(Recommender):
 
     def _calculate_result(self, similarity: np.ndarray, ratings: np.ndarray) -> float:
         if self.calculation_variant == "weighted":
-            return float(np.mean(ratings))
+            mean = np.dot(ratings, similarity) / similarity.sum()
+            return mean
         else:
-            raise ValueError(f"This calculation method is not implemented yet.")
+            return float(np.mean(ratings))
 
     def _check_values(self) -> None:
         if self.mode == 'user':
